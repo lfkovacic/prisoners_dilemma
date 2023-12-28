@@ -16,8 +16,6 @@ class PrisonersDilemma:
         self.total_scores = {'Player 1': 0, 'Player 2': 0}
         for _ in range(num_rounds):
             history = self.get_history()
-            if (history!=[]):                
-                print(history[-1])
             move1 = player1.make_move(history, 1)
             move2 = player2.make_move(history, 0)
 
@@ -27,7 +25,7 @@ class PrisonersDilemma:
 
         print("\nGame History:")
         for round_num, (move1, move2, payoff) in enumerate(history, start=1):
-            print(f"Round {round_num}: Player 1 move: {move1}, Player 2 move: {move2}, Payoff: {payoff}")
+            print(f"Round {round_num}: \n\tPlayer 1 move: {move1}, \n\tPlayer 2 move: {move2}, \nPayoff: {payoff}\n")
 
         total_scores = self.get_total_scores()
         print("\nTotal Scores:")

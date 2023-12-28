@@ -262,7 +262,7 @@ class MLAgent:
                 'C'] * (self.input_size - len(opponent_moves)) + opponent_moves
 
         encoded_moves = self.encode_moves(opponent_moves[-self.input_size:])
-        prediction = self.model.predict(np.array([encoded_moves]))[0][0]
+        prediction = self.model.predict(np.array([encoded_moves]), verbose=0)[0][0]
 
         return 'D' if prediction > 0.5 else 'C'
 
