@@ -1,8 +1,11 @@
-import os
-import datetime
-import random
-import numpy as np
 import tensorflow as tf
+import numpy as np
+import random
+import datetime
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+physical_devices = tf.config.list_physical_devices('GPU')
 
 
 class RandomAgent:
@@ -34,6 +37,7 @@ class TitForTat:
             self.last_opponent_move = history[-1][opponent_id]
         return self.last_opponent_move
 
+
 class TitForTwoTats:
     def __init__(self):
         self.defection_count = 0
@@ -45,6 +49,7 @@ class TitForTwoTats:
             self.defection_count = 0
 
         return 'D' if self.defection_count >= 2 else 'C'
+
 
 class TitForTatWithForgiveness:
     def __init__(self, forgiveness_threshold=1):
@@ -58,6 +63,7 @@ class TitForTatWithForgiveness:
             self.defection_count = 0
 
         return 'D' if self.defection_count <= self.forgiveness_threshold else 'C'
+
 
 class GradualTitForTat:
     def __init__(self, retaliation_threshold=2):
@@ -76,7 +82,6 @@ class GradualTitForTat:
             self.retaliatory_phase = True
 
         return 'D' if self.retaliatory_phase and self.retaliatory_count <= self.retaliatory_threshold else 'C'
-
 
 
 class TatForTit:
@@ -110,13 +115,102 @@ class TatForTit:
             self.last_opponent_move = 'C'
 
 
+class MLAgent2:
+    def __init__(self, path='./ml_agent_2_model.h5'):
+        self.last_epoch=0
+        self.model_path = model_path
+        self.model = self.build_model()
+
+    def build_model(self):
+        if os.path.exists(self.model_path):
+            return tf.keras.models.load_model(self.model_path)
+        else:
+            model = tf.keras.Sequential([
+                tf.keras.layers.Dense(
+                    16, activation='relu', input_shape=(self.input_size,)),
+                tf.keras.layers.Dense(
+                    32, activation='relu', input_shape=(self.input_size, )),
+                tf.keras.layers.Dense(1, activation='sigmoid')
+            ])
+        model.compile(optimizer='adam',
+                      loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+
+    def train(self, game, path, opponent, epochs=10, games_per_epoch=10, num_rounds=10):
+        log_dir = "./logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(
+            log_dir=log_dir, histogram_freq=1)
+        total_payoff = 0
+        current_payoff = 0
+        player1=self
+        player2=opponent
+        player2.__init__()
+
+        for current_epoch in range(self.last_epoch, self.last_epoch+epochs):
+            total_X_train= []
+            total_y_train = []
+
+            for _ in range (games_per_epoch):
+                game.__init__()
+                for round_num in range(num_rounds):
+                    history = game.get_history()
+                    last_moves = history[-self.input_size:] if len(history)>=self.input_size else [(
+                        'C', 'C', (3, 3))] * (self.input_size - len(history)) + history
+                moves = [move for move, _, _ in last_moves]
+                # payoffs = [payoff for _, _, payoff in last_moves]                
+                # mean_expected_payoffs = np.mean([t[0] for t in payoffs])
+                encoded_moves = player1.encode_moves(moves)
+                predicted_opponent_move = player2.make_move(history, 0)
+                predicted_agent_move = player1.make_move(history, 1)
+                move1 = predicted_agent_move
+                move2 = predicted_opponent_move
+
+                payoffs = game.train_round(move1, move2)
+
+                current_payoff = payoffs[0]
+                total_payoff += current_payoff
+
+                total_X_train.append(encoded_moves.flatten())
+                total_y_train.append(
+                )
+            X_train = np.array(total_X_train)
+            y_train = np.array(total_y_train)
+            print(f"X_train: {X_train}, epoch: {epoch}")
+            print(f"y_train: {y_train}, epoch: {epoch}")
+
+            player1.model.fit(
+                X_train,
+                y_train,
+                epochs=current_epoch+epochs,
+                callbacks=[tensorboard_callback],
+                initial_epoch=current_epoch,
+            )
+        self.last_epoch +=epochs
+        player1.model.save(path)
+    def encode_moves(self, moves):
+        encoded_moves = [1 if move == 'D' else 0 for move in moves]
+        return np.array(encoded_moves)
+
+    def make_move(self, history, opponent_id):
+        opponent_moves = ([move[opponent_id]
+                            for move in history[-self.input_size:]])
+
+        if len(opponent_moves) < self.input_size:
+            opponent_moves = [
+                'C'] * (self.input_size - len(opponent_moves)) + opponent_moves
+
+        encoded_moves = self.encode_moves(opponent_moves[-self.input_size:])
+        prediction = self.model.predict(
+            np.array([encoded_moves]), verbose=0)[0][0]
+
+        return 'D' if prediction > 0.5 else 'C'
+
 class MLAgent:
-    def __init__(self, path='./ml_agent_model.h5', input_size=16, nastiness_constant=2, vengefullness_constant=0.8):
+    def __init__(self, path='./ml_agent_model.h5', input_size=16):
+        self.current_epoch = 0
         self.input_size = input_size
         self.model_path = path
         self.model = self.build_model()
-        self.nastiness_constant = nastiness_constant #lower = more nasty
-        self.vengefullness_constant = vengefullness_constant #lower = less vengeful
 
     def build_model(self):
         if os.path.exists(self.model_path):
@@ -124,7 +218,10 @@ class MLAgent:
         else:
             # Define the model
             model = tf.keras.Sequential([
-                tf.keras.layers.Dense(16, activation='relu', input_shape=(self.input_size,)),
+                tf.keras.layers.Dense(
+                    16+3, activation='relu', input_shape=(self.input_size,)),
+                tf.keras.layers.Dense(
+                    32, activation='relu', input_shape=(self.input_size, )),
                 tf.keras.layers.Dense(1, activation='sigmoid')
             ])
 
@@ -144,7 +241,7 @@ class MLAgent:
 
         player2.__init__()
 
-        for epoch in range(epochs):
+        for epoch in range(self.current_epoch, self.current_epoch+epochs):
             total_X_train = []
             total_y_train = []
 
@@ -173,7 +270,7 @@ class MLAgent:
 
                     # Try and predict opponent's next move
                     predicted_opponent_move = player2.make_move(history, 0)
-                    print(f"Predicted opponent move: {predicted_opponent_move}")
+                    # print(f"Predicted opponent move: {predicted_opponent_move}")
 
                     # See what happens if you make a move
                     predicted_agent_move = player1.make_move(history, 1)
@@ -186,20 +283,11 @@ class MLAgent:
                     # See what the new mean is
                     predicted_mean_expected_payoff = np.mean(
                         [t[0] for t in payoffs])
-                    print(
-                        f"Predicted mean payoff: {predicted_mean_expected_payoff}, round: {round_num}, epoch: {epoch}")
-
-                    # Choose the maximally beneficial action based on the agent's expected payoff relative to opponent's
-                    if predicted_mean_expected_payoff > self.nastiness_constant:
-                        max_beneficial_action = 'D'  # Agent expects positive payoff, defect
-                    elif predicted_mean_expected_payoff < self.vengefullness_constant:
-                        max_beneficial_action = 'D'  # Opponent consistently defects, defect
-                    else:
-                        max_beneficial_action = 'C'  # Otherwise, cooperate
-                    print(f"Maximally beneficial action: {max_beneficial_action}, round: {round_num}, epoch: {epoch}")
+                    # print(
+                    # f"Predicted mean payoff: {predicted_mean_expected_payoff}, round: {round_num}, epoch: {epoch}")
 
                     # Play the round using the game's play_round method
-                    move1 = max_beneficial_action
+                    move1 = predicted_agent_move
                     move2 = player2.make_move(history, 0)
                     payoff1, payoff2 = game.play_round(move1, move2)
 
@@ -211,7 +299,7 @@ class MLAgent:
                     total_X_train.append(encoded_moves.flatten())
                     # Use 1 for 'D', 0 for 'C'
                     total_y_train.append(
-                        1 if max_beneficial_action == 'D' else 0)
+                        1 if predicted_agent_move == 'D' else 0)
 
                 # Convert to numpy arrays for training
                 X_train = np.array(total_X_train)
@@ -223,11 +311,11 @@ class MLAgent:
                 player1.model.fit(
                     X_train,
                     y_train,
-                    epochs=epochs,
+                    epochs=self.current_epoch+epochs,
                     callbacks=[tensorboard_callback],
-                    initial_epoch=epoch,
+                    initial_epoch=self.current_epoch,
                 )
-
+                self.current_epoch += epochs
         # Save the model after training
         player1.model.save(path)
 
@@ -255,14 +343,16 @@ class MLAgent:
         Returns:
             str: 'C' for cooperate, 'D' for defect.
         """
-        opponent_moves = ([move[opponent_id] for move in history[-self.input_size:]])
+        opponent_moves = ([move[opponent_id]
+                          for move in history[-self.input_size:]])
 
         if len(opponent_moves) < self.input_size:
             opponent_moves = [
                 'C'] * (self.input_size - len(opponent_moves)) + opponent_moves
 
         encoded_moves = self.encode_moves(opponent_moves[-self.input_size:])
-        prediction = self.model.predict(np.array([encoded_moves]), verbose=0)[0][0]
+        prediction = self.model.predict(
+            np.array([encoded_moves]), verbose=0)[0][0]
 
         return 'D' if prediction > 0.5 else 'C'
 
@@ -282,6 +372,7 @@ class MotherTheresa:
         """
         return 'C'
 
+
 class Tester:
     def __init__(self, cooperation_rounds=5):
         self.cooperation_rounds = cooperation_rounds
@@ -293,6 +384,7 @@ class Tester:
             return 'C'
         else:
             return 'D'
+
 
 class SmarterTester:
     def __init__(self, cooperation_threshold=0.8, cooperation_rounds=5):
@@ -306,7 +398,8 @@ class SmarterTester:
 
         opponent_moves = [move[opponent_id] for move in history]
 
-        cooperation_percentage = sum(1 for move in opponent_moves if move == 'C') / len(opponent_moves)
+        cooperation_percentage = sum(
+            1 for move in opponent_moves if move == 'C') / len(opponent_moves)
 
         if cooperation_percentage >= self.cooperation_threshold:
             self.round_count += 1
