@@ -17,9 +17,7 @@ class RandomAgent:
             str: 'C' for cooperate, 'D' for defect.
         """
         return random.choice(['C', 'D'])
-
-    def update_opponent_move(self, move):
-        return 0
+    def get_name(self): return "RandomAgent"
 
 
 class TitForTat:
@@ -36,6 +34,7 @@ class TitForTat:
         if (history != []):
             self.last_opponent_move = history[-1][opponent_id]
         return self.last_opponent_move
+    def get_name(self): return "TitForTat"
 
 
 class TitForTwoTats:
@@ -49,6 +48,7 @@ class TitForTwoTats:
             self.defection_count = 0
 
         return 'D' if self.defection_count >= 2 else 'C'
+    def get_name(self): return "TitForTwoTats"
 
 
 class TitForTatWithForgiveness:
@@ -63,6 +63,7 @@ class TitForTatWithForgiveness:
             self.defection_count = 0
 
         return 'D' if self.defection_count <= self.forgiveness_threshold else 'C'
+    def get_name(self): return "TitForTatWithForgiveness"
 
 
 class GradualTitForTat:
@@ -82,6 +83,7 @@ class GradualTitForTat:
             self.retaliatory_phase = True
 
         return 'D' if self.retaliatory_phase and self.retaliatory_count <= self.retaliatory_threshold else 'C'
+    def get_name(self): return "GradualTitForTat"
 
 
 class TatForTit:
@@ -101,25 +103,15 @@ class TatForTit:
             return 'D'
         else:
             return 'C'
-
-    def update_opponent_move(self, move):
-        """
-        Updates the last opponent move.
-
-        Parameters:
-            move (str): Opponent's move ('C' for cooperate, 'D' for defect).
-        """
-        if (move == 'C'):
-            self.last_opponent_move = 'D'
-        else:
-            self.last_opponent_move = 'C'
+    def get_name(self): return "TatForTit"
 
 
 class MLAgent2:
-    def __init__(self, path='./ml_agent_2_model.h5'):
-        self.last_epoch=0
-        self.model_path = model_path
+    def __init__(self, path='./ml_agent_2_model.h5', input_size=16):
+        self.last_epoch = 0
+        self.model_path = path
         self.model = self.build_model()
+        self.input_size = 16
 
     def build_model(self):
         if os.path.exists(self.model_path):
@@ -127,73 +119,88 @@ class MLAgent2:
         else:
             model = tf.keras.Sequential([
                 tf.keras.layers.Dense(
-                    16, activation='relu', input_shape=(self.input_size,)),
+                    16, activation='relu', input_shape=(16,)),
                 tf.keras.layers.Dense(
-                    32, activation='relu', input_shape=(self.input_size, )),
+                    32, activation='relu', input_shape=(32,)),
                 tf.keras.layers.Dense(1, activation='sigmoid')
             ])
         model.compile(optimizer='adam',
                       loss='binary_crossentropy', metrics=['accuracy'])
         return model
+    def custom_reward(self, move1, move2):
+        # Define your custom reward logic here
+        # Example: Add 5 points for mutual cooperation, -2 for mutual defection
+        if move1 == 'C' and move2 == 'C':
+            return 3
+        elif move1 == 'D' and move2 == 'D':
+            return 1
+        elif move1 == 'C' and move2 == 'D':
+            return 0
+        else:  # move1 == 'D' and move2 == 'C'
+            return 5
 
     def train(self, game, path, opponent, epochs=10, games_per_epoch=10, num_rounds=10):
+        
         log_dir = "./logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         tensorboard_callback = tf.keras.callbacks.TensorBoard(
             log_dir=log_dir, histogram_freq=1)
         total_payoff = 0
         current_payoff = 0
-        player1=self
-        player2=opponent
+        player1 = self
+        player2 = opponent
         player2.__init__()
 
         for current_epoch in range(self.last_epoch, self.last_epoch+epochs):
-            total_X_train= []
-            total_y_train = []
+            
 
-            for _ in range (games_per_epoch):
-                game.__init__()
+            for _ in range(games_per_epoch):
+                game.__init__(player1, player2)
+                total_X_train = []
+                total_y_train = []
+                total_payoff = 0
                 for round_num in range(num_rounds):
                     history = game.get_history()
-                    last_moves = history[-self.input_size:] if len(history)>=self.input_size else [(
+                    last_moves = history[-self.input_size:] if len(history) >= self.input_size else [(
                         'C', 'C', (3, 3))] * (self.input_size - len(history)) + history
-                moves = [move for move, _, _ in last_moves]
-                # payoffs = [payoff for _, _, payoff in last_moves]                
-                # mean_expected_payoffs = np.mean([t[0] for t in payoffs])
-                encoded_moves = player1.encode_moves(moves)
-                predicted_opponent_move = player2.make_move(history, 0)
-                predicted_agent_move = player1.make_move(history, 1)
-                move1 = predicted_agent_move
-                move2 = predicted_opponent_move
+                    moves = [move for move, _, _ in last_moves]
+                    # payoffs = [payoff for _, _, payoff in last_moves]
+                    # mean_expected_payoffs = np.mean([t[0] for t in payoffs])
+                    encoded_moves = player1.encode_moves(moves)
+                    predicted_opponent_move = player2.make_move(history, 0)
+                    predicted_agent_move = player1.make_move(history, 1)
+                    move1 = predicted_agent_move
+                    move2 = predicted_opponent_move
 
-                payoffs = game.train_round(move1, move2)
+                    payoffs = game.train_round(move1, move2, player1.get_name(), player2.get_name())
+                    # print(f"Payoffs: {payoffs}")
 
-                current_payoff = payoffs[0]
-                total_payoff += current_payoff
+                    current_payoff = payoffs[0]
+                    total_payoff += current_payoff
 
-                total_X_train.append(encoded_moves.flatten())
-                total_y_train.append(
+                    total_X_train.append(encoded_moves.flatten())
+                    total_y_train.append(total_payoff)
+                X_train = np.array(total_X_train)
+                y_train = np.array(total_y_train)
+                print(f"X_train: {X_train}, epoch: {current_epoch}")
+                print(f"y_train: {y_train}, epoch: {current_epoch}")
+
+                player1.model.fit(
+                    X_train,
+                    y_train,
+                    epochs=current_epoch+epochs,
+                    callbacks=[tensorboard_callback],
+                    initial_epoch=current_epoch,
                 )
-            X_train = np.array(total_X_train)
-            y_train = np.array(total_y_train)
-            print(f"X_train: {X_train}, epoch: {epoch}")
-            print(f"y_train: {y_train}, epoch: {epoch}")
-
-            player1.model.fit(
-                X_train,
-                y_train,
-                epochs=current_epoch+epochs,
-                callbacks=[tensorboard_callback],
-                initial_epoch=current_epoch,
-            )
-        self.last_epoch +=epochs
+        self.last_epoch += epochs
         player1.model.save(path)
+
     def encode_moves(self, moves):
         encoded_moves = [1 if move == 'D' else 0 for move in moves]
         return np.array(encoded_moves)
 
     def make_move(self, history, opponent_id):
         opponent_moves = ([move[opponent_id]
-                            for move in history[-self.input_size:]])
+                           for move in history[-self.input_size:]])
 
         if len(opponent_moves) < self.input_size:
             opponent_moves = [
@@ -204,6 +211,8 @@ class MLAgent2:
             np.array([encoded_moves]), verbose=0)[0][0]
 
         return 'D' if prediction > 0.5 else 'C'
+    def get_name(self): return "MLAgent"
+
 
 class MLAgent:
     def __init__(self, path='./ml_agent_model.h5', input_size=16):
@@ -247,7 +256,7 @@ class MLAgent:
 
             for _ in range(games_per_epoch):
                 # Reset the game state for a new self-play game
-                game.__init__()
+                game.__init__(player1, player2)
 
                 for round_num in range(num_rounds):
                     # Collect data for training from self-play games
@@ -363,6 +372,7 @@ class JerkFace:
         Returns D because he's a jerk
         """
         return 'D'
+    def get_name(self): return "JerkFace"
 
 
 class MotherTheresa:
@@ -371,19 +381,28 @@ class MotherTheresa:
         Returns C because she's holy
         """
         return 'C'
+    def get_name(self): return "MotherTheresa"
 
 
 class Tester:
-    def __init__(self, cooperation_rounds=5):
+    def __init__(self, history, cooperation_rounds=5):
         self.cooperation_rounds = cooperation_rounds
         self.round_count = 0
+        self.opponent_retaliated = False
 
     def make_move(self, history, opponent_id):
         if self.round_count < self.cooperation_rounds:
             self.round_count += 1
             return 'C'
         else:
-            return 'D'
+            if self.round_count == self.cooperation_rounds:
+                return 'D'
+            if self.round_count == self.cooperation_rounds+1:
+                self.opponent_retaliated = history[-1][opponent_id] == 'D'
+            if self.opponent_retaliated:
+                return 'C'
+            else:
+                return 'D'
 
 
 class SmarterTester:
