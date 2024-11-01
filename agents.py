@@ -31,10 +31,14 @@ class TitForTat:
         Returns:
             str: 'C' for cooperate, 'D' for defect.
         """
-        if (history != []):
+        if history == []:
+            self.last_opponent_move = 'C'
+        else:
             self.last_opponent_move = history[-1][opponent_id]
         return self.last_opponent_move
-    def get_name(self): return "TitForTat"
+
+    def get_name(self):
+        return "TitForTat"
 
 
 class TitForTwoTats:
@@ -110,26 +114,23 @@ class MLAgent2:
     def __init__(self, path='./ml_agent_2_model.h5', input_size=16):
         self.last_epoch = 0
         self.model_path = path
+        self.input_size = input_size * 2  # Adjusted input size for player and opponent moves
         self.model = self.build_model()
-        self.input_size = 16
 
     def build_model(self):
         if os.path.exists(self.model_path):
             return tf.keras.models.load_model(self.model_path)
         else:
             model = tf.keras.Sequential([
-                tf.keras.layers.Dense(
-                    16, activation='relu', input_shape=(16,)),
-                tf.keras.layers.Dense(
-                    32, activation='relu', input_shape=(32,)),
+                tf.keras.layers.Dense(16, activation='relu', input_shape=(self.input_size,)),
+                tf.keras.layers.Dense(32, activation='relu'),
                 tf.keras.layers.Dense(1, activation='sigmoid')
             ])
-        model.compile(optimizer='adam',
-                      loss='binary_crossentropy', metrics=['accuracy'])
+            model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
         return model
+
     def custom_reward(self, move1, move2):
-        # Define your custom reward logic here
-        # Example: Add 5 points for mutual cooperation, -2 for mutual defection
+        # Reward logic
         if move1 == 'C' and move2 == 'C':
             return 3
         elif move1 == 'D' and move2 == 'D':
@@ -140,19 +141,14 @@ class MLAgent2:
             return 5
 
     def train(self, game, path, opponent, epochs=10, games_per_epoch=10, num_rounds=10):
-        
         log_dir = "./logs/fit/" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        tensorboard_callback = tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir, histogram_freq=1)
+        tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=log_dir, histogram_freq=1)
         total_payoff = 0
-        current_payoff = 0
         player1 = self
         player2 = opponent
         player2.__init__()
 
-        for current_epoch in range(self.last_epoch, self.last_epoch+epochs):
-            
-
+        for current_epoch in range(self.last_epoch, self.last_epoch + epochs):
             for _ in range(games_per_epoch):
                 game.__init__(player1, player2)
                 total_X_train = []
@@ -160,34 +156,34 @@ class MLAgent2:
                 total_payoff = 0
                 for round_num in range(num_rounds):
                     history = game.get_history()
-                    last_moves = history[-self.input_size:] if len(history) >= self.input_size else [(
-                        'C', 'C', (3, 3))] * (self.input_size - len(history)) + history
-                    moves = [move for move, _, _ in last_moves]
-                    # payoffs = [payoff for _, _, payoff in last_moves]
-                    # mean_expected_payoffs = np.mean([t[0] for t in payoffs])
-                    encoded_moves = player1.encode_moves(moves)
+                    last_moves = history[-(self.input_size // 2):] if len(history) >= self.input_size // 2 else [('C', 'C', (3, 3))] * (self.input_size // 2 - len(history)) + history
+                    
+                    # Extract player and opponent moves from last_moves
+                    player_moves = [move[0] for move in last_moves[-(self.input_size // 2):]]
+                    opponent_moves = [move[1] for move in last_moves[-(self.input_size // 2):]]
+
+                    # Encode both player and opponent moves
+                    encoded_moves = self.encode_moves(player_moves) + self.encode_moves(opponent_moves)
+
                     predicted_opponent_move = player2.make_move(history, 0)
                     predicted_agent_move = player1.make_move(history, 1)
                     move1 = predicted_agent_move
                     move2 = predicted_opponent_move
 
                     payoffs = game.train_round(move1, move2, player1.get_name(), player2.get_name())
-                    # print(f"Payoffs: {payoffs}")
-
                     current_payoff = payoffs[0]
                     total_payoff += current_payoff
 
-                    total_X_train.append(encoded_moves.flatten())
+                    total_X_train.append(encoded_moves)
                     total_y_train.append(total_payoff)
+
                 X_train = np.array(total_X_train)
                 y_train = np.array(total_y_train)
-                print(f"X_train: {X_train}, epoch: {current_epoch}")
-                print(f"y_train: {y_train}, epoch: {current_epoch}")
 
                 player1.model.fit(
                     X_train,
                     y_train,
-                    epochs=current_epoch+epochs,
+                    epochs=current_epoch + epochs,
                     callbacks=[tensorboard_callback],
                     initial_epoch=current_epoch,
                 )
@@ -195,23 +191,31 @@ class MLAgent2:
         player1.model.save(path)
 
     def encode_moves(self, moves):
-        encoded_moves = [1 if move == 'D' else 0 for move in moves]
-        return np.array(encoded_moves)
+        return [1 if move == 'D' else 0 for move in moves]
 
     def make_move(self, history, opponent_id):
-        opponent_moves = ([move[opponent_id]
-                           for move in history[-self.input_size:]])
+        # Extract the last moves for both players
+        player_moves = [move[0] for move in history[-(self.input_size // 2):]]
+        opponent_moves = [move[1] for move in history[-(self.input_size // 2):]]
 
-        if len(opponent_moves) < self.input_size:
-            opponent_moves = [
-                'C'] * (self.input_size - len(opponent_moves)) + opponent_moves
+        if len(opponent_moves) < self.input_size // 2:
+            opponent_moves = ['C'] * (self.input_size // 2 - len(opponent_moves)) + opponent_moves
 
-        encoded_moves = self.encode_moves(opponent_moves[-self.input_size:])
-        prediction = self.model.predict(
-            np.array([encoded_moves]), verbose=0)[0][0]
+        if len(player_moves) < self.input_size // 2:
+            player_moves = ['C'] * (self.input_size // 2 - len(player_moves)) + player_moves
+
+        # Encode both player and opponent moves
+        encoded_player_moves = self.encode_moves(player_moves[-(self.input_size // 2):])
+        encoded_opponent_moves = self.encode_moves(opponent_moves[-(self.input_size // 2):])
+
+        # Combine player and opponent moves for prediction
+        prediction_input = np.array(encoded_player_moves + encoded_opponent_moves)
+        prediction = self.model.predict(np.array([prediction_input]), verbose=0)[0][0]
 
         return 'D' if prediction > 0.5 else 'C'
-    def get_name(self): return "MLAgent"
+
+    def get_name(self): 
+        return "MLAgent"
 
 
 class MLAgent:
@@ -313,8 +317,6 @@ class MLAgent:
                 # Convert to numpy arrays for training
                 X_train = np.array(total_X_train)
                 y_train = np.array(total_y_train)
-                print(f"X_train: {X_train}, epoch: {epoch}")
-                print(f"y_train: {y_train}, epoch: {epoch}")
 
                 # Train the model
                 player1.model.fit(

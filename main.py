@@ -1,6 +1,6 @@
 import random
 import numpy as np
-from game import PrisonersDilemma
+from game import PrisonersDilemma2
 from agents import *
 
 # print("\n\nMLAgent vs")
@@ -18,28 +18,32 @@ from agents import *
 
 player = MLAgent2()
 opponents = [
+    player,
     RandomAgent(),
     TitForTat(),
     TitForTwoTats(),
     TatForTit(),
-    player,
     JerkFace(),
     MotherTheresa()
 ]
-for x in range(10):
-    opponent = random.choice(opponents)
-    player.train(
-        game=PrisonersDilemma(player, opponent),
-        path="E:\workspace\prisoners_dilemma\ml_agent_model.h5",
-        opponent=opponent,
-        epochs=10,
-        games_per_epoch=1,
-        num_rounds=200
-    )
+# for x in range(10):
+#     opponent = random.choice(opponents)
+#     player.train(
+#         game=PrisonersDilemma(player, opponent),
+#         path="E:\workspace\prisoners_dilemma\ml_agent_model.h5",
+#         opponent=opponent,
+#         epochs=10,
+#         games_per_epoch=1,
+#         num_rounds=200
+#     )
 
 # for opponent in opponents:
 #     game.play_game(100, player, opponent)
 
 # for opponent1 in opponents:
 #     for opponent2 in opponents:
-#         game.play_game(100, opponent1, opponent2)
+#         PrisonersDilemma(opponent1, opponent2).play_game(500, opponent1, opponent2)
+
+game = PrisonersDilemma2(opponents)
+game.play_game(500)
+game._output_to_file()
